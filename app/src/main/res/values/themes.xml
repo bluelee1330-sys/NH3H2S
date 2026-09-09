@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.MultiGasMonitor" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
