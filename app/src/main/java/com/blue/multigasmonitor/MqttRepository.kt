@@ -38,9 +38,9 @@ object MqttRepository {
     fun onMessage(topic: String, payload: String) {
         val parts = topic.trim('/').split("/")
         if (parts.size < 2) return
-
         val type = parts.last().uppercase()          // NH3 / H2S / TEMP
-        val channel = parts[parts.size - 2]           // 1 / 2 / 3
+        val channelRaw = parts[parts.size - 2]         // 1 / ch1 / CH1 ...
+        val channel = channelRaw.filter { it.isDigit() }.ifBlank { channelRaw }
 
         val key = "CH$channel/$type"
         val trimmed = payload.trim()
