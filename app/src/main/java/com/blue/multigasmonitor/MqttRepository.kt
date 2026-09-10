@@ -38,6 +38,13 @@ object MqttRepository {
     private val _deviceOnline = MutableStateFlow<Boolean?>(null)
     val deviceOnline: StateFlow<Boolean?> = _deviceOnline
 
+    // OUT1/OUT2/OUT3 실제 상태(key=1,2,3). "prefix/outN/state"를 펌웨어가 발행하면
+    // 여기 반영됩니다 - 폰에서 눌러도, ESP32 LCD에서 터치해도 결국 이 토픽 하나로
+    // 모이기 때문에 양쪽 어디서 바꾸든 서로 동기화됩니다. 아직 못 받은 채널은 없음
+    // (버튼은 기본 OFF로 표시).
+    private val _outputStates = MutableStateFlow<Map<Int, Boolean>>(emptyMap())
+    val outputStates: StateFlow<Map<Int, Boolean>> = _outputStates
+
     // 현재 연결된 MQTT 클라이언트(및 그때 설정된 topicPrefix)에 대한 참조.
     // OUT1/2/3 버튼에서 ESP32로 ON/OFF 명령을 보낼 때 씁니다.
     // MqttForegroundService가 연결 성공/종료할 때마다 attachClient()로 갱신해줍니다.
@@ -92,6 +99,18 @@ object MqttRepository {
 
         if (parts.last().equals("board", ignoreCase = true)) {
             _deviceOnline.value = payload.trim().equals("online", ignoreCase = true)
+            return
+        }
+
+        // "prefix/outN/state" — ESP32 LCD를 직접 터치해서 릴레이가 바뀐 경우도
+        // 이 토픽으로 발행되도록 펌웨어를 고쳐서, 폰 쪽 버튼도 같이 따라 바뀌게 합니다.
+        if (parts.size >= 2 &&
+            parts.last().equals("state", ignoreCase = true) &&
+            parts[parts.size - 2].startsWith("out", ignoreCase = true)
+        ) {
+            val outIndex = parts[parts.size - 2].drop(3).toIntOrNull() ?: return
+            val on = payload.trim().equals("on", ignoreCase = true)
+            _outputStates.update { it + (outIndex to on) }
             return
         }
         if (parts.size < 2) return

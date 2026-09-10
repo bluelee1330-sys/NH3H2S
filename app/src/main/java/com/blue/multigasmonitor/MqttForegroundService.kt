@@ -59,6 +59,28 @@ class MqttForegroundService : Service() {
             .serverHost(prefs.host)
             .serverPort(prefs.port)
             .automaticReconnectWithDefaultConfig()
+            // (2026-09-10) automaticReconnectWithDefaultConfig()는 끊긴 TCP/TLS 연결만
+            // 알아서 다시 붙여줄 뿐, 구독은 자동으로 복구해주지 않습니다. 그래서 화면/
+            // 와이파이가 잠깐이라도 흔들려서 재연결이 한 번 일어나면, 연결 자체는 살아
+            // 있는데 구독이 없어서 값이 더 이상 안 들어오는 문제가 있었습니다(상단 초록
+            // 점/보드 상태는 마지막으로 받은 값 그대로라 "온라인"으로 계속 보임).
+            // addConnectedListener는 최초 연결이든 자동 재연결이든 "연결될 때마다" 항상
+            // 호출되므로, 여기서 매번 다시 구독해서 이 문제를 근본적으로 막습니다.
+            .addConnectedListener {
+                MqttRepository.setConnectionState(ConnectionState.CONNECTED)
+                updateNotification("연결됨 · ${prefs.host}:${prefs.port}")
+                client?.let { c ->
+                    MqttRepository.attachClient(c, prefs.topicPrefix)
+                    subscribe(c, prefs.topicPrefix)
+                }
+            }
+            .addDisconnectedListener {
+                // 자동 재연결이 백그라운드에서 다시 시도하는 중이라는 뜻이라 CONNECTING으로
+                // 표시합니다. 재연결에 성공하면 addConnectedListener가 다시 불려서
+                // CONNECTED로 돌아갑니다.
+                MqttRepository.setConnectionState(ConnectionState.CONNECTING)
+                updateNotification("연결 끊김 - 재연결 시도 중...")
+            }
 
         if (prefs.useTls) {
             builder.sslWithDefaultConfig()
@@ -76,16 +98,13 @@ class MqttForegroundService : Service() {
                 .applySimpleAuth()
         }
 
+        // 성공 시 처리(상태 갱신/구독)는 위 addConnectedListener가 담당합니다(최초 연결도
+        // 거기서 한 번 불립니다). 여기서는 "최초 연결 시도 자체가 실패"한 경우만 봅니다.
         connectBuilder.send()
             .whenComplete { _, throwable ->
                 if (throwable != null) {
                     MqttRepository.setConnectionState(ConnectionState.ERROR)
                     updateNotification("연결 실패: ${throwable.message}")
-                } else {
-                    MqttRepository.setConnectionState(ConnectionState.CONNECTED)
-                    MqttRepository.attachClient(newClient, prefs.topicPrefix)
-                    updateNotification("연결됨 · ${prefs.host}:${prefs.port}")
-                    subscribe(newClient, prefs.topicPrefix)
                 }
             }
     }

@@ -90,6 +90,7 @@ fun MultiGasMonitorScreen(onSettingsSaved: () -> Unit) {
     val readings by MqttRepository.readings.collectAsState()
     val connectionState by MqttRepository.connectionState.collectAsState()
     val deviceOnline by MqttRepository.deviceOnline.collectAsState()
+    val outputStates by MqttRepository.outputStates.collectAsState()
 
     // 1초마다 갱신되는 "현재 시각" — 값이 오래됐는지(=보드가 멈췄는지) 판단하는 데 씀
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -137,9 +138,10 @@ fun MultiGasMonitorScreen(onSettingsSaved: () -> Unit) {
                 }
             }
 
-            // OUT1/OUT2/OUT3: 누르면 ON/OFF 토글하면서 "prefix/outN/cmd" 토픽으로
-            // "ON"/"OFF" 문자열을 발행합니다. 펌웨어가 이 토픽을 구독해야 실제로 릴레이가
-            // 움직입니다(펌웨어 쪽 구독 코드 추가 필요 - 별도 안내).
+            // OUT1/OUT2/OUT3: 버튼 표시 상태는 "prefix/outN/state"로 받은 실제 값을 그대로
+            // 보여줍니다(눌렀을 때 화면이 바로 바뀌는 게 아니라, ESP32가 상태를 확인해주고
+            // 발행해줘야 바뀝니다) — 그래야 폰에서 눌러도, ESP32 LCD를 직접 터치해도
+            // 양쪽이 항상 같은 값을 보게 됩니다.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -147,7 +149,11 @@ fun MultiGasMonitorScreen(onSettingsSaved: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 for (i in 1..3) {
-                    OutButton(outIndex = i, modifier = Modifier.weight(1f))
+                    OutButton(
+                        outIndex = i,
+                        isOn = outputStates[i] ?: false,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -274,8 +280,7 @@ private fun GasSubCell(label: String, reading: GasReading?, isStale: Boolean) {
  * 색상은 펌웨어 LCD의 OUT 버튼과 맞췄습니다(OFF=남색, ON=초록).
  */
 @Composable
-private fun OutButton(outIndex: Int, modifier: Modifier = Modifier) {
-    var isOn by remember { mutableStateOf(false) }
+private fun OutButton(outIndex: Int, isOn: Boolean, modifier: Modifier = Modifier) {
     val bg = if (isOn) Color(0xFF00A843) else Color(0xFF2A2F63)
 
     Box(
@@ -285,8 +290,11 @@ private fun OutButton(outIndex: Int, modifier: Modifier = Modifier) {
             .background(bg)
             .border(1.dp, Color.White, RoundedCornerShape(6.dp))
             .clickable {
-                isOn = !isOn
-                MqttRepository.publishOutput(outIndex, isOn)
+                // 여기서 바로 색을 안 바꾸고, 현재 알고 있는 상태의 반대값을 "명령"으로만
+                // 보냅니다. 실제로 화면 색이 바뀌는 건 ESP32가 "prefix/outN/state"로
+                // 확인 응답을 보내줄 때입니다(그래야 ESP32 LCD에서 직접 눌렀을 때도
+                // 똑같은 방식으로 동기화됨).
+                MqttRepository.publishOutput(outIndex, !isOn)
             },
         contentAlignment = Alignment.Center
     ) {
