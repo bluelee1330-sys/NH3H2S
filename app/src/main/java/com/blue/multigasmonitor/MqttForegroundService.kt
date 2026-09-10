@@ -22,6 +22,15 @@ class MqttForegroundService : Service() {
 
     private var client: Mqtt3AsyncClient? = null
 
+    // connect()를 부를 때마다(화면 재개 시 등) 기존 클라이언트를 disconnect()하고 완전히
+    // 새 클라이언트를 만드는데, 그 "옛날" 클라이언트의 addDisconnectedListener 콜백이
+    // 비동기라서 "새" 클라이언트가 이미 연결에 성공한 뒤에 뒤늦게 도착하는 경우가 있었습니다.
+    // 그러면 실제로는 잘 연결돼서 데이터도 잘 받고 있는데, 뒤늦은 옛날 이벤트가 상태를
+    // CONNECTING(주황 점)으로 덮어써버리는 문제가 생깁니다. connect()를 부를 때마다 이
+    // 번호를 하나씩 증가시키고, 리스너 콜백에서 "지금도 내가 최신 연결이 맞는지" 확인해서
+    // 낡은 클라이언트의 이벤트는 무시하도록 막습니다.
+    private var connectGeneration = 0
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -52,6 +61,11 @@ class MqttForegroundService : Service() {
         // 기존 연결이 있으면 정리
         client?.disconnect()
 
+        // 이번 connect() 호출이 "몇 번째"인지 기록해두고, 아래 리스너들이 나중에 불릴 때
+        // 그사이 더 최신 connect()가 또 불려서 자기가 이미 낡은 연결이 된 건 아닌지
+        // 확인하는 데 씁니다(위 주석 참고).
+        val myGeneration = ++connectGeneration
+
         MqttRepository.setConnectionState(ConnectionState.CONNECTING)
 
         val builder = Mqtt3Client.builder()
@@ -67,6 +81,7 @@ class MqttForegroundService : Service() {
             // addConnectedListener는 최초 연결이든 자동 재연결이든 "연결될 때마다" 항상
             // 호출되므로, 여기서 매번 다시 구독해서 이 문제를 근본적으로 막습니다.
             .addConnectedListener {
+                if (myGeneration != connectGeneration) return@addConnectedListener   // 낡은 연결의 뒤늦은 이벤트는 무시
                 MqttRepository.setConnectionState(ConnectionState.CONNECTED)
                 updateNotification("연결됨 · ${prefs.host}:${prefs.port}")
                 client?.let { c ->
@@ -75,6 +90,7 @@ class MqttForegroundService : Service() {
                 }
             }
             .addDisconnectedListener {
+                if (myGeneration != connectGeneration) return@addDisconnectedListener   // 낡은 연결의 뒤늦은 이벤트는 무시
                 // 자동 재연결이 백그라운드에서 다시 시도하는 중이라는 뜻이라 CONNECTING으로
                 // 표시합니다. 재연결에 성공하면 addConnectedListener가 다시 불려서
                 // CONNECTED로 돌아갑니다.
@@ -102,6 +118,7 @@ class MqttForegroundService : Service() {
         // 거기서 한 번 불립니다). 여기서는 "최초 연결 시도 자체가 실패"한 경우만 봅니다.
         connectBuilder.send()
             .whenComplete { _, throwable ->
+                if (myGeneration != connectGeneration) return@whenComplete   // 낡은 연결의 뒤늦은 이벤트는 무시
                 if (throwable != null) {
                     MqttRepository.setConnectionState(ConnectionState.ERROR)
                     updateNotification("연결 실패: ${throwable.message}")
