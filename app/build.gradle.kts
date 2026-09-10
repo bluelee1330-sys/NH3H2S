@@ -15,7 +15,22 @@ android {
         versionName = "0.1"
     }
 
+    // 이 debug.keystore를 저장소에 커밋해서 매 빌드마다 같은 서명으로 APK를 만듭니다.
+    // (CI 러너가 기본 debug.keystore를 매번 새로 생성하면, 빌드마다 서명이 달라져서
+    //  폰에 재설치할 때 "업데이트"가 아니라 "삭제 후 새 설치"가 되어 저장된 설정이 날아갑니다.)
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
         }
@@ -35,6 +50,9 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
+
+    // HiveMQ MQTT Client가 끌고 오는 netty 라이브러리들끼리 META-INF 메타파일이 겹쳐서
+    // mergeDebugJavaResource 단계에서 충돌하는 것을 방지
     packaging {
         resources {
             excludes += "/META-INF/INDEX.LIST"

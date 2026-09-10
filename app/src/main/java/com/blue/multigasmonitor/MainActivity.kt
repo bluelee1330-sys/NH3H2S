@@ -148,8 +148,9 @@ private fun ConnectionDot(state: ConnectionState) {
 }
 
 /**
- * 보드가 "prefix/status"에 online/offline을 발행하도록 펌웨어를 고친 경우에만 의미 있는 배너.
+ * 보드가 "prefix/board"에 online/offline(LWT)을 발행하도록 펌웨어를 고친 경우에만 의미 있는 배너.
  * 아직 펌웨어에 그 기능이 없으면(deviceOnline == null) 아무것도 표시하지 않습니다.
+ * ("prefix/status"는 기존 JSON 상태 토픽이라 겹치지 않게 이름을 다르게 씀)
  */
 @Composable
 private fun DeviceStatusBanner(deviceOnline: Boolean?) {

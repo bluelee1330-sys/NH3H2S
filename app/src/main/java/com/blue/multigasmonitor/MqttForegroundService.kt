@@ -89,7 +89,7 @@ class MqttForegroundService : Service() {
     }
 
     private fun subscribe(client: Mqtt3AsyncClient, topicPrefix: String) {
-        // 예: gas/1/NH3, gas/2/H2S, gas/3/TEMP 뿐 아니라 gas/status(보드 online/offline)까지
+        // 예: gas/1/NH3, gas/2/H2S, gas/3/TEMP 뿐 아니라 gas/board(보드 online/offline, LWT)까지
         // prefix 아래 전부 받기 위해 다중 레벨 와일드카드(#) 사용
         val filter = "$topicPrefix/#"
 

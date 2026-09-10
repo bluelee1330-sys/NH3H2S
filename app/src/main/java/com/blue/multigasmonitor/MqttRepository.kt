@@ -27,7 +27,10 @@ object MqttRepository {
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState
 
-    // ESP32 보드가 "prefix/status"에 online/offline(LWT)을 발행하면 여기 반영됩니다.
+    // ESP32 보드가 "prefix/board"에 online/offline(LWT)을 발행하면 여기 반영됩니다.
+    // "status"가 아니라 "board"인 이유: 펌웨어가 이미 "prefix/status"를 3채널 JSON
+    // 통합 토픽으로, "prefix/chN/status"를 채널별 ACTIVE/ERROR로 쓰고 있어서 겹치지
+    // 않는 이름을 새로 골랐습니다.
     // null = 아직 한 번도 못 받음(펌웨어가 아직 이 기능을 안 쓰거나, 값이 오기 전)
     private val _deviceOnline = MutableStateFlow<Boolean?>(null)
     val deviceOnline: StateFlow<Boolean?> = _deviceOnline
@@ -44,14 +47,16 @@ object MqttRepository {
     /**
      * 토픽(예: "bluelee_nh3h2s/ch1/nh3")과 페이로드 문자열(예: "0.0")을 받아 저장소에 반영.
      * 채널 세그먼트는 "1", "ch1", "CH1" 등 어떤 형태로 오든 숫자만 뽑아서 사용합니다.
-     * "prefix/status" 토픽(online/offline)은 보드 상태로 별도 처리합니다.
+     * "prefix/board" 토픽(online/offline, LWT)은 보드 상태로 별도 처리합니다.
+     * ("prefix/status"와 "prefix/chN/status"는 펌웨어가 이미 JSON/ACTIVE-ERROR 값으로
+     *  쓰고 있으므로 절대 여기서 가로채면 안 됩니다.)
      * 토픽 규칙이 이보다 더 다르면 이 파싱 로직만 바꾸면 됩니다.
      */
     fun onMessage(topic: String, payload: String) {
         val parts = topic.trim('/').split("/")
         if (parts.isEmpty()) return
 
-        if (parts.last().equals("status", ignoreCase = true)) {
+        if (parts.last().equals("board", ignoreCase = true)) {
             _deviceOnline.value = payload.trim().equals("online", ignoreCase = true)
             return
         }
