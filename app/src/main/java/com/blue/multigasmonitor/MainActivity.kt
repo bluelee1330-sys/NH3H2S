@@ -27,6 +27,10 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
+    // onCreate에서 이미 연결을 한 번 시작하므로, 앱을 막 실행했을 때 onResume이 곧바로
+    // 또 호출되면서 중복으로 재연결하지 않도록 첫 onResume은 건너뜁니다.
+    private var isFirstResume = true
+
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
             // 알림 권한이 거부돼도 서비스 자체는 동작합니다(상태 알림만 안 보일 뿐).
@@ -52,6 +56,21 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isFirstResume) {
+            isFirstResume = false
+            return
+        }
+        // 화면이 꺼졌다 켜지거나(잠금화면 등) 다른 앱에 갔다가 돌아올 때, OS가 화면이
+        // 꺼져 있는 동안 백그라운드 네트워크를 끊어버렸는데도 MQTT 클라이언트 라이브러리는
+        // 그걸 모르고 "연결됨" 상태로 남아있는 경우가 있습니다. 이러면 값이 안 들어와서
+        // 30초 후 전부 "--"로 표시되는데, 사용자가 설정 화면에서 "저장 & 재연결"을 눌러야만
+        // 복구되는 문제가 있었습니다. 그래서 화면(앱)이 다시 보일 때마다 자동으로 재연결을
+        // 시도해서, 사용자가 직접 재연결하지 않아도 되게 합니다.
+        startMqttService()
     }
 
     private fun startMqttService() {
