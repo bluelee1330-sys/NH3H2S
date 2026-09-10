@@ -1,8 +1,11 @@
 package com.blue.multigasmonitor
 
+import com.hivemq.client.mqtt.datatypes.MqttQos
+import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import java.nio.charset.StandardCharsets
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
@@ -35,8 +38,39 @@ object MqttRepository {
     private val _deviceOnline = MutableStateFlow<Boolean?>(null)
     val deviceOnline: StateFlow<Boolean?> = _deviceOnline
 
+    // 현재 연결된 MQTT 클라이언트(및 그때 설정된 topicPrefix)에 대한 참조.
+    // OUT1/2/3 버튼에서 ESP32로 ON/OFF 명령을 보낼 때 씁니다.
+    // MqttForegroundService가 연결 성공/종료할 때마다 attachClient()로 갱신해줍니다.
+    @Volatile
+    private var mqttClient: Mqtt3AsyncClient? = null
+    @Volatile
+    private var currentTopicPrefix: String = ""
+
     fun setConnectionState(state: ConnectionState) {
         _connectionState.value = state
+    }
+
+    fun attachClient(client: Mqtt3AsyncClient?, topicPrefix: String) {
+        mqttClient = client
+        currentTopicPrefix = topicPrefix
+    }
+
+    /**
+     * OUT1/OUT2/OUT3 버튼 -> "prefix/outN/cmd" 토픽으로 "ON"/"OFF" 문자열을 발행합니다.
+     * (예: bluelee_nh3h2s/out1/cmd). 아직 연결이 안 돼 있으면 조용히 무시합니다.
+     * 펌웨어가 이 토픽들을 구독해서 relayState를 갱신하도록 별도 코드가 추가돼야
+     * 실제로 릴레이(OUT1~3)가 움직입니다.
+     */
+    fun publishOutput(outIndex: Int, on: Boolean) {
+        val client = mqttClient ?: return
+        val prefix = currentTopicPrefix.ifBlank { return }
+        val topic = "$prefix/out$outIndex/cmd"
+        val payload = if (on) "ON" else "OFF"
+        client.publishWith()
+            .topic(topic)
+            .qos(MqttQos.AT_LEAST_ONCE)
+            .payload(payload.toByteArray(StandardCharsets.UTF_8))
+            .send()
     }
 
     /** 값이 너무 오래됐으면(=보드가 멈췄을 가능성) true. 화면에서 "--"로 표시할 때 사용. */

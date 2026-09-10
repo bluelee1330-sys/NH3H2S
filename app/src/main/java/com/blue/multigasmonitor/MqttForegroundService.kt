@@ -37,6 +37,7 @@ class MqttForegroundService : Service() {
 
     override fun onDestroy() {
         client?.disconnect()
+        MqttRepository.attachClient(null, "")
         MqttRepository.setConnectionState(ConnectionState.DISCONNECTED)
         super.onDestroy()
     }
@@ -82,6 +83,7 @@ class MqttForegroundService : Service() {
                     updateNotification("연결 실패: ${throwable.message}")
                 } else {
                     MqttRepository.setConnectionState(ConnectionState.CONNECTED)
+                    MqttRepository.attachClient(newClient, prefs.topicPrefix)
                     updateNotification("연결됨 · ${prefs.host}:${prefs.port}")
                     subscribe(newClient, prefs.topicPrefix)
                 }

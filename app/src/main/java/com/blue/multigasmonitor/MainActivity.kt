@@ -10,17 +10,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -121,20 +121,33 @@ fun MultiGasMonitorScreen(onSettingsSaved: () -> Unit) {
         ) {
             DeviceStatusBanner(deviceOnline = deviceOnline)
 
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val cells = TYPES.flatMap { type -> CHANNELS.map { ch -> ch to type } }
-                items(cells) { (ch, type) ->
-                    val key = "CH$ch/$type"
-                    val reading = readings[key]
-                    val stale = MqttRepository.isStale(reading, now)
-                    GasCell(label = key, reading = reading, isStale = stale)
+                CHANNELS.forEach { ch ->
+                    ChannelColumn(
+                        channel = ch,
+                        readings = readings,
+                        now = now,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // OUT1/OUT2/OUT3: 누르면 ON/OFF 토글하면서 "prefix/outN/cmd" 토픽으로
+            // "ON"/"OFF" 문자열을 발행합니다. 펌웨어가 이 토픽을 구독해야 실제로 릴레이가
+            // 움직입니다(펌웨어 쪽 구독 코드 추가 필요 - 별도 안내).
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (i in 1..3) {
+                    OutButton(outIndex = i, modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -192,42 +205,97 @@ private fun DeviceStatusBanner(deviceOnline: Boolean?) {
     }
 }
 
-/** IoT MQTT Panel의 숫자 위젯과 비슷한 느낌의 카드 */
+/**
+ * 채널 1개(CH1/CH2/CH3) 컬럼: 위에 "CH1" 같은 공통 제목, 그 아래 검은 테두리 박스 안에
+ * NH3/H2S/TEMP 값이 세로로 쌓입니다. 예전처럼 각 값 라벨에 "CH1/"을 반복하지 않습니다.
+ */
 @Composable
-private fun GasCell(label: String, reading: GasReading?, isStale: Boolean) {
+private fun ChannelColumn(
+    channel: String,
+    readings: Map<String, GasReading>,
+    now: Long,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = "CH$channel",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(4.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color.Black, RoundedCornerShape(4.dp))
+                .padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            TYPES.forEach { type ->
+                val reading = readings["CH$channel/$type"]
+                val stale = MqttRepository.isStale(reading, now)
+                GasSubCell(label = type, reading = reading, isStale = stale)
+            }
+        }
+    }
+}
+
+/** 채널 컬럼 안에 들어가는 값 하나(NH3/H2S/TEMP)짜리 작은 카드 */
+@Composable
+private fun GasSubCell(label: String, reading: GasReading?, isStale: Boolean) {
     val displayValue = if (isStale) "--" else (reading?.displayValue ?: "--")
     val isError = !isStale && reading?.isError == true
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1f)
             .border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(4.dp))
             .background(Color.White)
             .padding(8.dp)
     ) {
+        Text(text = label, fontSize = 13.sp, color = Color(0xFF444444))
         Text(
-            text = label,
-            fontSize = 13.sp,
-            color = Color(0xFF444444)
+            text = displayValue,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+            color = when {
+                isStale -> Color(0xFFBDBDBD)
+                isError -> Color(0xFFC62828)
+                else -> Color(0xFF111111)
+            },
+            modifier = Modifier.padding(top = 2.dp)
         )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = displayValue,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                color = when {
-                    isStale -> Color(0xFFBDBDBD)
-                    isError -> Color(0xFFC62828)
-                    else -> Color(0xFF111111)
-                }
-            )
-        }
+    }
+}
+
+/**
+ * OUT1/OUT2/OUT3 버튼. 누를 때마다 ON/OFF를 토글하면서 그 상태를 MQTT로 발행합니다.
+ * 색상은 펌웨어 LCD의 OUT 버튼과 맞췄습니다(OFF=남색, ON=초록).
+ */
+@Composable
+private fun OutButton(outIndex: Int, modifier: Modifier = Modifier) {
+    var isOn by remember { mutableStateOf(false) }
+    val bg = if (isOn) Color(0xFF00A843) else Color(0xFF2A2F63)
+
+    Box(
+        modifier = modifier
+            .height(52.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(bg)
+            .border(1.dp, Color.White, RoundedCornerShape(6.dp))
+            .clickable {
+                isOn = !isOn
+                MqttRepository.publishOutput(outIndex, isOn)
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "OUT$outIndex",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp
+        )
     }
 }
 
