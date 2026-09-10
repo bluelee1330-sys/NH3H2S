@@ -70,6 +70,16 @@ fun MultiGasMonitorScreen(onSettingsSaved: () -> Unit) {
 
     val readings by MqttRepository.readings.collectAsState()
     val connectionState by MqttRepository.connectionState.collectAsState()
+    val deviceOnline by MqttRepository.deviceOnline.collectAsState()
+
+    // 1초마다 갱신되는 "현재 시각" — 값이 오래됐는지(=보드가 멈췄는지) 판단하는 데 씀
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            now = System.currentTimeMillis()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -85,19 +95,28 @@ fun MultiGasMonitorScreen(onSettingsSaved: () -> Unit) {
             )
         }
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            val cells = TYPES.flatMap { type -> CHANNELS.map { ch -> ch to type } }
-            items(cells) { (ch, type) ->
-                val key = "CH$ch/$type"
-                GasCell(label = key, reading = readings[key])
+            DeviceStatusBanner(deviceOnline = deviceOnline)
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val cells = TYPES.flatMap { type -> CHANNELS.map { ch -> ch to type } }
+                items(cells) { (ch, type) ->
+                    val key = "CH$ch/$type"
+                    val reading = readings[key]
+                    val stale = MqttRepository.isStale(reading, now)
+                    GasCell(label = key, reading = reading, isStale = stale)
+                }
             }
         }
     }
@@ -128,11 +147,36 @@ private fun ConnectionDot(state: ConnectionState) {
     )
 }
 
+/**
+ * 보드가 "prefix/status"에 online/offline을 발행하도록 펌웨어를 고친 경우에만 의미 있는 배너.
+ * 아직 펌웨어에 그 기능이 없으면(deviceOnline == null) 아무것도 표시하지 않습니다.
+ */
+@Composable
+private fun DeviceStatusBanner(deviceOnline: Boolean?) {
+    if (deviceOnline == null) return
+
+    val (bg, text) = if (deviceOnline) {
+        Color(0xFFE8F5E9) to "보드 상태: 온라인"
+    } else {
+        Color(0xFFFFEBEE) to "보드 상태: 오프라인 (전원/네트워크 확인 필요)"
+    }
+    val textColor = if (deviceOnline) Color(0xFF2E7D32) else Color(0xFFC62828)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bg)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Text(text = text, fontSize = 13.sp, color = textColor, fontWeight = FontWeight.Bold)
+    }
+}
+
 /** IoT MQTT Panel의 숫자 위젯과 비슷한 느낌의 카드 */
 @Composable
-private fun GasCell(label: String, reading: GasReading?) {
-    val displayValue = reading?.displayValue ?: "--"
-    val isError = reading?.isError == true
+private fun GasCell(label: String, reading: GasReading?, isStale: Boolean) {
+    val displayValue = if (isStale) "--" else (reading?.displayValue ?: "--")
+    val isError = !isStale && reading?.isError == true
 
     Column(
         modifier = Modifier
@@ -157,7 +201,11 @@ private fun GasCell(label: String, reading: GasReading?) {
                 text = displayValue,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isError) Color(0xFFC62828) else Color(0xFF111111)
+                color = when {
+                    isStale -> Color(0xFFBDBDBD)
+                    isError -> Color(0xFFC62828)
+                    else -> Color(0xFF111111)
+                }
             )
         }
     }
