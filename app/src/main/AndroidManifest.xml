@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- (2026-09-15 추가) OUT1/2/3 버튼을 눌렀을 때 Compose 기본 햅틱(아주 짧음) 대신
+         직접 길이를 지정한 진동을 주기 위함 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
