@@ -1,10 +1,14 @@
 package com.blue.multigasmonitor
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,8 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -83,6 +86,21 @@ class MainActivity : ComponentActivity() {
 
 private val CHANNELS = listOf("1", "2", "3")
 private val TYPES = listOf("NH3", "H2S", "TEMP")
+
+// OUT1/2/3 버튼을 눌렀을 때 줄 진동 길이. Compose의 HapticFeedbackType은 기기가 정한
+// 고정된(아주 짧은) 길이만 낼 수 있어서, 원하는 만큼 길게 주려고 Vibrator를 직접 씁니다.
+private const val OUTPUT_BUTTON_VIBRATION_MS = 150L
+
+private fun vibrate(context: Context, durationMs: Long = OUTPUT_BUTTON_VIBRATION_MS) {
+    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+        manager.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+    }
+    vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -284,7 +302,7 @@ private fun GasSubCell(label: String, reading: GasReading?, isStale: Boolean) {
 @Composable
 private fun OutButton(outIndex: Int, isOn: Boolean, modifier: Modifier = Modifier) {
     val bg = if (isOn) Color(0xFF00A843) else Color(0xFF2A2F63)
-    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     Box(
         modifier = modifier
@@ -293,11 +311,11 @@ private fun OutButton(outIndex: Int, isOn: Boolean, modifier: Modifier = Modifie
             .background(bg)
             .border(1.dp, Color.White, RoundedCornerShape(6.dp))
             .clickable {
-                // 누르는 순간 바로 진동(햅틱)을 줘서 눌렸다는 걸 즉시 느끼게 하고,
+                // 누르는 순간 바로 진동을 줘서 눌렸다는 걸 즉시 느끼게 하고,
                 // 현재 알고 있는 상태의 반대값을 "명령"으로만 보냅니다. 실제로 화면
                 // 색이 바뀌는 건 ESP32가 "prefix/outN/state"로 확인 응답을 보내줄
                 // 때입니다(그래야 ESP32 LCD에서 직접 눌렀을 때도 똑같은 방식으로 동기화됨).
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                vibrate(context)
                 MqttRepository.publishOutput(outIndex, !isOn)
             },
         contentAlignment = Alignment.Center
