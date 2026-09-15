@@ -5,7 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.hivemq.client.mqtt.datatypes.MqttQos
@@ -22,6 +24,13 @@ class MqttForegroundService : Service() {
 
     private var client: Mqtt3AsyncClient? = null
 
+    // 화면이 꺼지면(특히 삼성 등 일부 기기) OS가 배터리 절약을 위해 와이파이 자체를 저전력
+    // 모드로 내려서, 앱 배터리 설정을 "제한 없음"으로 해도 연결이 끊기는 경우가 있습니다.
+    // 그래서 서비스가 떠 있는 동안은 와이파이를 계속 켜놓도록 잡아둡니다.
+    // (CPU를 계속 깨워두는 WakeLock까지는 안 씁니다 - 끊겨도 앱을 다시 열면 바로
+    //  재연결되므로, 배터리를 더 쓰면서까지 CPU를 안 재울 필요는 없다고 판단했습니다.)
+    private var wifiLock: WifiManager.WifiLock? = null
+
     // connect()를 부를 때마다(화면 재개 시 등) 기존 클라이언트를 disconnect()하고 완전히
     // 새 클라이언트를 만드는데, 그 "옛날" 클라이언트의 addDisconnectedListener 콜백이
     // 비동기라서 "새" 클라이언트가 이미 연결에 성공한 뒤에 뒤늦게 도착하는 경우가 있었습니다.
@@ -35,6 +44,7 @@ class MqttForegroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("연결 중..."))
+        acquireLocks()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -48,7 +58,23 @@ class MqttForegroundService : Service() {
         client?.disconnect()
         MqttRepository.attachClient(null, "")
         MqttRepository.setConnectionState(ConnectionState.DISCONNECTED)
+        releaseLocks()
         super.onDestroy()
+    }
+
+    private fun acquireLocks() {
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        wifiLock = wifiManager
+            ?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "MultiGasMonitor:wifiLock")
+            ?.apply {
+                setReferenceCounted(false)
+                if (!isHeld) acquire()
+            }
+    }
+
+    private fun releaseLocks() {
+        wifiLock?.let { if (it.isHeld) it.release() }
+        wifiLock = null
     }
 
     private fun connect() {

@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -282,6 +284,7 @@ private fun GasSubCell(label: String, reading: GasReading?, isStale: Boolean) {
 @Composable
 private fun OutButton(outIndex: Int, isOn: Boolean, modifier: Modifier = Modifier) {
     val bg = if (isOn) Color(0xFF00A843) else Color(0xFF2A2F63)
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = modifier
@@ -290,10 +293,11 @@ private fun OutButton(outIndex: Int, isOn: Boolean, modifier: Modifier = Modifie
             .background(bg)
             .border(1.dp, Color.White, RoundedCornerShape(6.dp))
             .clickable {
-                // 여기서 바로 색을 안 바꾸고, 현재 알고 있는 상태의 반대값을 "명령"으로만
-                // 보냅니다. 실제로 화면 색이 바뀌는 건 ESP32가 "prefix/outN/state"로
-                // 확인 응답을 보내줄 때입니다(그래야 ESP32 LCD에서 직접 눌렀을 때도
-                // 똑같은 방식으로 동기화됨).
+                // 누르는 순간 바로 진동(햅틱)을 줘서 눌렸다는 걸 즉시 느끼게 하고,
+                // 현재 알고 있는 상태의 반대값을 "명령"으로만 보냅니다. 실제로 화면
+                // 색이 바뀌는 건 ESP32가 "prefix/outN/state"로 확인 응답을 보내줄
+                // 때입니다(그래야 ESP32 LCD에서 직접 눌렀을 때도 똑같은 방식으로 동기화됨).
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 MqttRepository.publishOutput(outIndex, !isOn)
             },
         contentAlignment = Alignment.Center
