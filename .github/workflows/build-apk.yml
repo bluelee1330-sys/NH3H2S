@@ -17,14 +17,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # (2026-09-15) android-actions/setup-android@v3는 구글이 SDK 저장소에서 제거한
+      # 예전 "tools" 패키지를 설치하려다 sdkmanager가 exit code 1로 실패합니다
+      # ("Failed to find package 'tools'"). ubuntu-latest 러너에는 이미 Android SDK가
+      # (cmdline-tools/platform-tools/필요한 플랫폼까지) 설치·라이선스 승인된 채로 들어있어서
+      # 이 스텝 자체가 필요 없으므로 통째로 제거합니다.
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
 
+      # gradlew(wrapper jar)를 저장소에 포함하지 않았으므로 setup-gradle이 깐 gradle을 직접 사용합니다.
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
